@@ -42,7 +42,7 @@ int main(int argc, char **argv)
         fclose(file); free(data); return 1;
     }
     fclose(file);
-    fprintf(stderr, "[SSX] Loading US retail XBE (%ld bytes)\n", size);
+    fprintf(stderr, "[SSX] Loading retail XBE (%ld bytes)\n", size);
     if (!xbox_MemoryLayoutInit(data, (size_t)size)) {
         fprintf(stderr, "[SSX] Memory mapping failed\n");
         free(data); return 1;

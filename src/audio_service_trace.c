@@ -5,6 +5,17 @@
 extern uintptr_t g_xbox_mem_offset;
 /* Read-only, bounded service timing for the supported retail XBE. */
 #include "apu_state.h"
+/* The EU retail image lays its .data globals 0x5328 bytes above the US
+ * layout; SSX_DATA_VA_DELTA lets the launcher shift the audited US data
+ * addresses (0 = US default). */
+static uint32_t ssx_data_delta(void)
+{
+    static int loaded;static uint32_t delta;
+    if(!loaded){loaded=1;const char*e=getenv("SSX_DATA_VA_DELTA");
+        if(e&&*e){unsigned long v=strtoul(e,NULL,0);if(v<0x1000000u)delta=(uint32_t)v;}}
+    return delta;
+}
+#define DATA_VA(va) ((uint32_t)(va) + ssx_data_delta())
 void ssx_audio_service_trace(unsigned event, unsigned cursor)
 {
     static int initialized;static FILE *output;static unsigned count;
@@ -15,9 +26,9 @@ void ssx_audio_service_trace(unsigned event, unsigned cursor)
     }
     if(!output || count>=20000)return;
     uint32_t previous,lead,ring,cbo64=0,cbo66=0;
-    memcpy(&previous,(void *)(g_xbox_mem_offset+0x205be8),4);
-    memcpy(&lead,(void *)(g_xbox_mem_offset+0x205be4),4);
-    memcpy(&ring,(void *)(g_xbox_mem_offset+0x205be0),4);
+    memcpy(&previous,(void *)(g_xbox_mem_offset+DATA_VA(0x205be8)),4);
+    memcpy(&lead,(void *)(g_xbox_mem_offset+DATA_VA(0x205be4)),4);
+    memcpy(&ring,(void *)(g_xbox_mem_offset+DATA_VA(0x205be0)),4);
     if(g_state) {
         uintptr_t base=(uintptr_t)g_state->ram_ptr+g_state->regs[NV_PAPU_VPVADDR];
         memcpy(&cbo64,(void *)(base+64*128+0x58),4);
@@ -43,9 +54,9 @@ static int ram_u32(uint32_t address,uint32_t *value)
 void ssx_audio_service_publish(unsigned end)
 {
     uint32_t buffer,object,voice,ring;
-    if(!g_state || !ram_u32(0x205bb0,&buffer) || buffer<0x1c ||
+    if(!g_state || !ram_u32(DATA_VA(0x205bb0),&buffer) || buffer<0x1c ||
        !ram_u32(buffer-0x1c+0x20,&object) || !ram_u32(object+0x10,&voice) ||
-       voice>=256 || !ram_u32(0x205be0,&ring) || !ring || end>=ring)return;
+       voice>=256 || !ram_u32(DATA_VA(0x205be0),&ring) || !ring || end>=ring)return;
     atomic_fetch_add_explicit(&source_epoch,1,memory_order_acq_rel);
     atomic_store_explicit(&source_buffer,buffer,memory_order_relaxed);
     atomic_store_explicit(&source_voice,voice,memory_order_relaxed);
@@ -67,7 +78,7 @@ int ssx_audio_source_ready(void)
     uint32_t end=atomic_load_explicit(&source_end,memory_order_relaxed);
     if(epoch!=atomic_load_explicit(&source_epoch,memory_order_acquire))return 0;
     uint32_t current;
-    if(!ram_u32(0x205bb0,&current) || current!=buffer ||
+    if(!ram_u32(DATA_VA(0x205bb0),&current) || current!=buffer ||
        table!=g_state->regs[NV_PAPU_VPVADDR] || voice>=256 || ring<256 || ring>16384)return 1;
     uintptr_t base=(uintptr_t)g_state->ram_ptr+table+voice*128;
     uint32_t cfg,status,cbo,ebo,lbo,pitch;

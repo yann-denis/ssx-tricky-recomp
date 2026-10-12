@@ -7,6 +7,10 @@ extern RECOMP_TLS uint32_t g_eax, g_esp;
 extern RECOMP_TLS int g_df;
 extern ptrdiff_t g_xbox_mem_offset;
 void sub_0015DB00(void);
+/* EU retail lays the same cdecl memmove at 0x00160A70 (verified by content
+ * match against the US manual function); the EU translator emits dispatch
+ * entries under the EU name, so alias it to the audited body. */
+void sub_00160A70(void) __attribute__((alias("sub_0015DB00")));
 typedef void (*recomp_func_t)(void);
 recomp_func_t recomp_lookup_manual(uint32_t va) { return va == 0x0015DB00 ? sub_0015DB00 : NULL; }
 static void print_guest_call_context(void)
