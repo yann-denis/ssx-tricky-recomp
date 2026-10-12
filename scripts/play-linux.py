@@ -69,9 +69,14 @@ def main():
         digest = hashlib.sha256(xbe.read_bytes()).hexdigest()
     except OSError as error:
         parser.error(f'Cannot read game image {xbe}: {error}')
-    if digest != '0128bbf6f86cc27307156f9206245115a9950541317d05b7037cab6ef063c84a':
-        parser.error('Unsupported game image; this build requires the original Xbox US retail release.')
+    supported = {'0128bbf6f86cc27307156f9206245115a9950541317d05b7037cab6ef063c84a': 'US',
+                 '2b69b736bfdd848cd979a70e079365b9c046b4bbabab06d19d35ad64197d61c2': 'EU'}
+    region = supported.get(digest)
+    if region is None:
+        parser.error('Unsupported game image; this build requires the original Xbox US or EU retail release.')
     env = os.environ.copy()
+    # EU .data globals sit 0x5328 above the audited US addresses.
+    env.setdefault('SSX_DATA_VA_DELTA', '0x5328' if region == 'EU' else '0')
     mappings = Path(__file__).with_name("controller-mappings.txt")
     if mappings.is_file():
         env.setdefault("SDL_GAMECONTROLLERCONFIG_FILE", str(mappings.resolve()))

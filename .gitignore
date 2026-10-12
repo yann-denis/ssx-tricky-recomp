@@ -15,3 +15,4 @@ core
 
 /.cache/
 /.local/
+.worktrees/
