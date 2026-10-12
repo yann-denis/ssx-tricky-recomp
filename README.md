@@ -17,6 +17,8 @@ cross-builds have been exercised under Wine; native Windows remains unverified.
 - An x86-64 Linux machine and OpenGL/EGL graphics drivers.
 - Your own original Xbox **US retail** game dump. The supported `default.xbe`
   SHA-256 is `0128bbf6f86cc27307156f9206245115a9950541317d05b7037cab6ef063c84a`.
+  The **EU retail** release (`2b69b736bfdd848cd979a70e079365b9c046b4bbabab06d19d35ad64197d61c2`)
+  is also supported on this branch — see [docs/EU_REGION.md](docs/EU_REGION.md).
 - Python 3, Git, CMake 3.20+, Ninja, a C11 compiler, and the development libraries
   listed below. Other game releases are rejected by the launcher.
 
