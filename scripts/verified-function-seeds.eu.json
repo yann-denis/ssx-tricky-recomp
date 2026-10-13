@@ -16314,5 +16314,17 @@
   {
     "start": "0x0010090C",
     "reason": "callback/function pointer passed as imm32 to a registrar or stored into a dispatch struct (EU GUI crash round 8 2026-10-12: Unresolved indirect call 0x0014D090, boot callback table 0x0020ADB4 filled by `push imm; call 0x151590`, dispatched by `call [esi*4+0x20adb4]` at 0x00151625); full data_imm-xref sweep, gate: instruction-aligned, callable prologue, ret/jmp/int3 within 120 insns, all refs callable pointer uses; excluded 3 SEH frame handlers, 2 SEH funclet targets, 10 arithmetic mislifts; no seed orphaned by any split"
+  },
+  {
+    "start": "0x00151AE0",
+    "reason": "linker jmp-thunk callback registered via push imm to a global-slot registrar (EU GUI crash round 9 2026-10-13: Unresolved indirect call 0x00152020, `jmp [0x20d344]` dispatcher at 0x15A4D0 called from 0x155D01, slot filled by `push 0x152020; call 0x1548E0`); thunk-class re-sweep of data_imm targets whose first insn is jmp/call imm32: exactly 3 gap thunks (0x151AE0/0x152020/0x152030), each a single jmp rel32 to a recovered function in nop padding after its host, no direct jump into the padding, no seed orphaned by the split"
+  },
+  {
+    "start": "0x00152020",
+    "reason": "linker jmp-thunk callback registered via push imm to a global-slot registrar (EU GUI crash round 9 2026-10-13: Unresolved indirect call 0x00152020, `jmp [0x20d344]` dispatcher at 0x15A4D0 called from 0x155D01, slot filled by `push 0x152020; call 0x1548E0`); thunk-class re-sweep of data_imm targets whose first insn is jmp/call imm32: exactly 3 gap thunks (0x151AE0/0x152020/0x152030), each a single jmp rel32 to a recovered function in nop padding after its host, no direct jump into the padding, no seed orphaned by the split"
+  },
+  {
+    "start": "0x00152030",
+    "reason": "linker jmp-thunk callback registered via push imm to a global-slot registrar (EU GUI crash round 9 2026-10-13: Unresolved indirect call 0x00152020, `jmp [0x20d344]` dispatcher at 0x15A4D0 called from 0x155D01, slot filled by `push 0x152020; call 0x1548E0`); thunk-class re-sweep of data_imm targets whose first insn is jmp/call imm32: exactly 3 gap thunks (0x151AE0/0x152020/0x152030), each a single jmp rel32 to a recovered function in nop padding after its host, no direct jump into the padding, no seed orphaned by the split"
   }
 ]
