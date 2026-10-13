@@ -1,0 +1,84 @@
+--- a/src/kernel/xbox_memory_layout.c
++++ b/src/kernel/xbox_memory_layout.c
+@@ -2152,6 +2152,29 @@
+ }
+ 
+ 
++/* Heap allocator lock.
++ *
++ * The bump pointer, the block table, and the counters below are plain
++ * statics, but titles allocate from several guest threads at once: SSX
++ * Tricky spawns a worker (PsCreateSystemThreadEx) whose
++ * NtAllocateVirtualMemory runs while the main thread is still allocating.
++ * Without serialization both threads read the same g_heap_next and get the
++ * SAME address -- observed as [HEAP] #1 (148 B) and #2 (1 MB) both
++ * returning 0x00F80000, after which the guest writes its 1 MB structure
++ * over the small block and later follows a corrupted pointer into a
++ * segfault. The window is a few instructions wide, so the crash is
++ * nondeterministic (roughly 1 run in 3).
++ *
++ * Same InterlockedCompareExchange spin as contig_lock() above.
++ */
++static volatile LONG g_heap_lock;
++static void heap_lock(void) {
++    while (InterlockedCompareExchange(&g_heap_lock, 1, 0)) Sleep(0);
++}
++static void heap_unlock(void) {
++    InterlockedExchange(&g_heap_lock, 0);
++}
++
+ uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment)
+ {
+     uint32_t result;
+@@ -2166,6 +2189,8 @@
+      * minimum of 4096 bytes so each allocation gets its own memory. */
+     if (size < 16) size = 16;
+ 
++    heap_lock();
++
+     /* Reuse a freed block first. Without this the heap only ever grows: Halo's
+      * debug build allocates and releases heavily through init, exhausted all
+      * 48 MB in 4,726 allocations, and its second D3D CreateDevice then failed
+@@ -2181,6 +2206,7 @@
+         g_heap_blocks[i].free = 0;
+         result = g_heap_blocks[i].addr;
+         memset((void *)((uintptr_t)result + g_memory_offset), 0, size);
++        heap_unlock();
+         return result;
+     }
+ 
+@@ -2219,6 +2245,7 @@
+                 fflush(stderr);
+             }
+         }
++        heap_unlock();
+         return 0;
+     }
+ 
+@@ -2245,6 +2272,7 @@
+         fflush(stderr);
+     }
+ 
++    heap_unlock();
+     return result;
+ }
+ 
+@@ -2284,6 +2312,7 @@
+     if (!xbox_va) {
+         return;
+     }
++    heap_lock();
+     frees++;
+     if (frees <= 8) {
+         fprintf(stderr, "  [HEAP] free #%d va=0x%08X blocks=%d\n",
+@@ -2317,8 +2346,10 @@
+             g_heap_blocks[i].size = 0;
+             g_heap_blocks[i].addr = 0;
+         }
++        heap_unlock();
+         return;
+     }
++    heap_unlock();
+ }
+ 
+ HANDLE xbox_GetMappingHandle(void)
