@@ -694,7 +694,20 @@ static void draw_uniforms(const SsxGlDraw *d,const GLint modes[4],
 #undef SSX_UNIFORM_CHANGED
     memcpy(&previous,&value,sizeof value);previous_program=program;uniform_state_valid=1;
 }
+static void draw_trace(const SsxGlDraw *d,const SsxGlVertex *v,unsigned count) {
+    static int enabled=-1;static unsigned seq;
+    if(enabled<0)enabled=getenv("SSX_GL_DRAW_TRACE")!=NULL;
+    if(!enabled)return;
+    float zmin=1e30f,zmax=-1e30f;
+    for(unsigned i=0;i<count;i++){float z=v[i].position[2];if(z<zmin)zmin=z;if(z>zmax)zmax=z;}
+    unsigned tex=0;for(int i=0;i<4;i++)if(d->textures[i].valid)tex|=1u<<i;
+    fprintf(stderr,"[DRAWTRACE] %u verts=%u z=[%.1f,%.1f] depth_en=%u wr=%u func=%u clip=(%u,%u,%u,%u) blend=%u tex=%x t0=%ux%u\n",
+        ++seq,count,count?zmin:0.f,count?zmax:0.f,d->depth_enable,d->depth_write,d->depth_func,
+        d->clip_x,d->clip_y,d->clip_w,d->clip_h,d->blend_enable,tex,
+        d->textures[0].width,d->textures[0].height);
+}
 int ssx_gl_draw(const SsxGlDraw *d,const SsxGlVertex *v,unsigned count) {
+    draw_trace(d,v,count);
     if(!count || !ssx_gl_enabled())return 0;
     if(!d->color || !d->width || !d->height || d->width>4096 || d->height>4096 || d->pitch<d->width*4)return 0;
     select_program(d);
