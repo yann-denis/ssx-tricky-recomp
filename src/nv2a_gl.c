@@ -629,6 +629,35 @@ static void unpack(uint32_t c,float *v){v[0]=((c>>16)&255)/255.f;v[1]=((c>>8)&25
  * render target. Compare only active locations: specialization removes many
  * uniforms altogether. Raw color words defer unpacking until an upload is
  * needed. A program switch, relink or explicit invalidation forces an upload. */
+/* Experiment flag: set by ssx_gl_draw when a title-sprite quad is drawn;
+ * consumed by draw_uniforms to dump the effective uniform values once. */
+static int ssx_title_draw_flag;
+static void dump_uniform_values(const void *vp) {
+    static int enabled=-1;
+    if(enabled<0)enabled=getenv("SSX_GL_DUMP_UNIFORMS")!=NULL;
+    if(!enabled)return;
+    typedef struct {
+        float extent[2],sizes[8];
+        GLint modes[4],valid[4],normalized[4],alpha_enable,alpha_func,alpha_ref,legacy;
+        GLint window_exclusive,window_rect[32];
+        uint32_t control,combiner[32],constant0[8],constant1[8],final0,final1,final_input[2];
+    } Values;
+    const Values *v=vp;
+    fprintf(stderr,"[UNIFORMS] ext=%.0fx%.0f sizes=",v->extent[0],v->extent[1]);
+    for(int i=0;i<8;i++)fprintf(stderr,"%.0f,",v->sizes[i]);
+    fprintf(stderr," modes=%d,%d,%d,%d valid=%d,%d,%d,%d norm=%d,%d,%d,%d alpha=%d/%d/%d legacy=%d wex=%d ctrl=%08x fin=%08x,%08x,%u,%u c0=",
+        v->modes[0],v->modes[1],v->modes[2],v->modes[3],v->valid[0],v->valid[1],v->valid[2],v->valid[3],
+        v->normalized[0],v->normalized[1],v->normalized[2],v->normalized[3],
+        v->alpha_enable,v->alpha_func,v->alpha_ref,v->legacy,v->window_exclusive,v->control,v->final0,v->final1,v->final_input[0],v->final_input[1]);
+    for(int i=0;i<8;i++)fprintf(stderr,"%08x,",v->constant0[i]);
+    fprintf(stderr," c1=");
+    for(int i=0;i<8;i++)fprintf(stderr,"%08x,",v->constant1[i]);
+    fprintf(stderr," comb=");
+    for(int i=0;i<32;i++)fprintf(stderr,"%08x,",v->combiner[i]);
+    fprintf(stderr," wrect=");
+    for(int i=0;i<32;i++)fprintf(stderr,"%d,",v->window_rect[i]);
+    fprintf(stderr,"\n");
+}
 static void draw_uniforms(const SsxGlDraw *d,const GLint modes[4],
                           const GLint valid[4],const GLint normalized[4],const float sizes[8]) {
     typedef struct {
@@ -668,6 +697,7 @@ static void draw_uniforms(const SsxGlDraw *d,const GLint modes[4],
     if(uniforms.alphaFunc>=0)value.alpha_func=d->alpha_func;
     if(uniforms.alphaRef>=0)value.alpha_ref=d->alpha_ref&255;
     if(uniforms.legacyTextured>=0)value.legacy=valid[0];
+    if(ssx_title_draw_flag) {dump_uniform_values(&value);ssx_title_draw_flag=0;}
     if(cache && uniform_state_valid && previous_program==program && !memcmp(&previous,&value,sizeof value))return;
     int partial=cache && uniform_state_valid && previous_program==program;
 #define SSX_UNIFORM_CHANGED(field) (!partial || memcmp(&previous.field,&value.field,sizeof value.field))
@@ -694,7 +724,90 @@ static void draw_uniforms(const SsxGlDraw *d,const GLint modes[4],
 #undef SSX_UNIFORM_CHANGED
     memcpy(&previous,&value,sizeof value);previous_program=program;uniform_state_valid=1;
 }
+static void draw_trace(const SsxGlDraw *d,const SsxGlVertex *v,unsigned count) {
+    static int enabled=-1;static unsigned seq;
+    if(enabled<0)enabled=getenv("SSX_GL_DRAW_TRACE")!=NULL;
+    if(!enabled)return;
+    float zmin=1e30f,zmax=-1e30f;
+    for(unsigned i=0;i<count;i++){float z=v[i].position[2];if(z<zmin)zmin=z;if(z>zmax)zmax=z;}
+    unsigned tex=0;for(int i=0;i<4;i++)if(d->textures[i].valid)tex|=1u<<i;
+    fprintf(stderr,"[DRAWTRACE] %u verts=%u z=[%.1f,%.1f] depth_en=%u wr=%u func=%u clip=(%u,%u,%u,%u) blend=%u tex=%x t0=%ux%u\n",
+        ++seq,count,count?zmin:0.f,count?zmax:0.f,d->depth_enable,d->depth_write,d->depth_func,
+        d->clip_x,d->clip_y,d->clip_w,d->clip_h,d->blend_enable,tex,
+        d->textures[0].width,d->textures[0].height);
+}
+/* Diagnostic (round 16, not for merge): dump the texture the host actually
+ * samples for the menu title quad (z~33554.4) as PPM RGB + PGM alpha. */
+static void dump_title_texture(const SsxGlDraw *d) {
+    static int enabled=-1;static void*seen[8];static int nseen;
+    if(enabled<0)enabled=getenv("SSX_GL_DUMP_TITLE")!=NULL;
+    if(!enabled)return;
+    const SsxGlTexture*t=&d->textures[0];
+    if(!t->valid||!t->sample_level||t->width!=256||t->height!=256)return;
+    for(int i=0;i<nseen;i++)if(seen[i]==t->source)return;
+    if(nseen>=8)return;
+    seen[nseen++]=t->source;
+    unsigned w=t->width,h=t->height;
+    uint8_t*rgb=malloc((size_t)w*h*3);uint8_t*a=malloc((size_t)w*h);
+    if(!rgb||!a){free(rgb);free(a);return;}
+    for(unsigned y=0;y<h;y++)for(unsigned x=0;x<w;x++){
+        uint32_t c=0xff000000;t->sample_level(t->opaque,0,(int)x,(int)y,&c);
+        rgb[((size_t)y*w+x)*3]=(uint8_t)(c>>16);rgb[((size_t)y*w+x)*3+1]=(uint8_t)(c>>8);rgb[((size_t)y*w+x)*3+2]=(uint8_t)c;
+        a[(size_t)y*w+x]=(uint8_t)(c>>24);
+    }
+    char path[64];
+    snprintf(path,sizeof path,"/tmp/r16_host_tex%d.ppm",nseen-1);
+    FILE*f=fopen(path,"wb");
+    if(f){fprintf(f,"P6\n%u %u\n255\n",w,h);fwrite(rgb,1,(size_t)w*h*3,f);fclose(f);}
+    snprintf(path,sizeof path,"/tmp/r16_host_tex%d_alpha.pgm",nseen-1);
+    f=fopen(path,"wb");
+    if(f){fprintf(f,"P5\n%u %u\n255\n",w,h);fwrite(a,1,(size_t)w*h,f);fclose(f);}
+    free(rgb);free(a);
+}
+/* Diagnostic (round 16): per-title-quad UV/pos report. */
+static void title_quad_report(const SsxGlDraw *d,const SsxGlVertex *v,unsigned count) {
+    static int enabled=-1;static unsigned seq;
+    float zmin=1e30f,zmax=-1e30f;
+    for(unsigned i=0;i<count;i++){float z=v[i].position[2];if(z<zmin)zmin=z;if(z>zmax)zmax=z;}
+    if(zmin>30000&&zmax<40000)ssx_title_draw_flag=1;
+    if(enabled<0)enabled=getenv("SSX_GL_TITLE_QUADS")?1:0;
+    if(!enabled)return;
+    if(!(zmin>30000&&zmax<40000))return;
+    ssx_title_draw_flag=1;
+    float umin=1e30f,umax=-1e30f,vmin=1e30f,vmax=-1e30f,xmin=1e30f,xmax=-1e30f,ymin=1e30f,ymax=-1e30f;
+    for(unsigned i=0;i<count;i++){
+        float u=v[i].tex[0][0],w=v[i].tex[0][1],x=v[i].position[0],y=v[i].position[1];
+        if(u<umin)umin=u;if(u>umax)umax=u;if(w<vmin)vmin=w;if(w>vmax)vmax=w;
+        if(x<xmin)xmin=x;if(x>xmax)xmax=x;if(y<ymin)ymin=y;if(y>ymax)ymax=y;
+    }
+    fprintf(stderr,"[TITLEQUAD] %u verts=%u z=%.1f uv.x=[%.4f,%.4f] uv.y=[%.4f,%.4f] pos.x=[%.1f,%.1f] pos.y=[%.1f,%.1f] t0=%ux%u src=%p\n",
+        ++seq,count,(zmin+zmax)/2,umin,umax,vmin,vmax,xmin,xmax,ymin,ymax,
+        d->textures[0].width,d->textures[0].height,d->textures[0].source);
+}
 int ssx_gl_draw(const SsxGlDraw *d,const SsxGlVertex *v,unsigned count) {
+    draw_trace(d,v,count);
+    title_quad_report(d,v,count);
+    {float z=0;for(unsigned i=0;i<count;i++){z=v[i].position[2];if(z>30000&&z<40000){dump_title_texture(d);break;}}}
+    /* Experiment (env-gated): vertically flip the title sprite's texture V
+     * coordinate at draw time. Targets the glyph quads: title z-band, 256x256
+     * texture 0, uv.y within the glyph band [0.52,0.70]. */
+    static int flip_title=-1;
+    if(flip_title<0)flip_title=getenv("SSX_GL_FLIP_TITLE")!=NULL;
+    SsxGlVertex vbuf[64];
+    if(flip_title&&count&&count<=64) {
+        float zmin=1e30f,zmax=-1e30f,vmin=1e30f,vmax=-1e30f;
+        for(unsigned i=0;i<count;i++) {
+            float z=v[i].position[2],t=v[i].tex[0][1];
+            if(z<zmin)zmin=z;if(z>zmax)zmax=z;if(t<vmin)vmin=t;if(t>vmax)vmax=t;
+        }
+        if(zmin>30000&&zmax<40000&&d->textures[0].valid
+           &&d->textures[0].width==256&&d->textures[0].height==256
+           &&vmin>0.52f&&vmax<0.70f) {
+            memcpy(vbuf,v,count*sizeof vbuf[0]);
+            for(unsigned i=0;i<count;i++)vbuf[i].tex[0][1]=1.0f-vbuf[i].tex[0][1];
+            v=vbuf;
+        }
+    }
     if(!count || !ssx_gl_enabled())return 0;
     if(!d->color || !d->width || !d->height || d->width>4096 || d->height>4096 || d->pitch<d->width*4)return 0;
     select_program(d);
